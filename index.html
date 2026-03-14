@@ -19,7 +19,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .stat .lbl{font-size:10px;color:#555;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;}
 .stat .val{font-size:20px;font-weight:700;}
 .stat .sub{font-size:11px;color:#444;margin-top:3px;}
-.pos{color:#00d09c;}.neg{color:#ff4d6d;}
+.pos{color:#00d09c;}.neg{color:#ff4d6d;}.neu{color:#fff;}
 .filters{display:flex;gap:8px;margin:12px 16px 10px;overflow-x:auto;padding-bottom:2px;}
 .filters::-webkit-scrollbar{display:none;}
 .fbtn{padding:6px 14px;border-radius:20px;border:1px solid #2a2a3e;background:none;color:#777;font-size:12px;cursor:pointer;white-space:nowrap;}
@@ -34,7 +34,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .ds .dv{font-size:13px;font-weight:700;text-align:center;}
 .card{margin:0 16px 8px;background:#1a1a2e;border-radius:14px;padding:13px 14px;border:1px solid #ffffff07;display:flex;align-items:center;gap:12px;}
 .badge{width:40px;height:40px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
-.bw{background:#00d09c15;}.bl{background:#ff4d6d15;}.bf{background:#ffa50015;}.bo{background:#33334430;}
+.bw{background:#00d09c15;}.bl{background:#ff4d6d15;}.bf{background:#ffa50015;}.bo{background:#33334430;}.bd{background:#6c63ff15;}
 .info{flex:1;min-width:0;}
 .info .sym{font-size:13px;font-weight:600;}
 .info .tm{font-size:11px;color:#555;margin-top:2px;}
@@ -47,9 +47,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .ph-info{flex:1;}
 .ph-info .name{font-size:14px;font-weight:700;}
 .ph-info .sub{font-size:11px;color:#555;margin-top:3px;}
-.ph-amt{text-align:right;}
 .ph-amt .amt{font-size:16px;font-weight:700;}
-.ph-amt .meta{font-size:10px;color:#555;margin-top:2px;}
+.ph-amt .meta{font-size:10px;color:#555;margin-top:2px;text-align:right;}
 .ph-arrow{font-size:14px;color:#555;transition:transform .2s;}
 .ph-arrow.open{transform:rotate(180deg);}
 .pb{border-top:1px solid #ffffff08;padding:6px 0;display:none;}
@@ -80,7 +79,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 <input type="file" id="fi" accept=".csv,.txt" style="display:none">
 
 <script>
-let ALL=[], FILTERED=[], activeF='all', activeTab='trades';
+let ALL=[], CASH=[], FILTERED=[], activeF='all', activeTab='trades';
 
 document.getElementById('fi').addEventListener('change',e=>loadFile(e.target.files[0]));
 document.addEventListener('dragover',e=>e.preventDefault());
@@ -90,15 +89,23 @@ function loadFile(f){
   if(!f)return;
   const r=new FileReader();
   r.onload=e=>{
-    const t=parseCSV(e.target.result);
-    if(!t.length){alert('Format non reconnu.');return;}
-    // Fusion : on combine et on déduplique par date+sym+prix
-    const merged=[...ALL,...t];
+    const {trades,cash}=parseCSV(e.target.result);
+    if(!trades.length){alert('Format non reconnu.');return;}
+    // Fusion trades
+    const merged=[...ALL,...trades];
     const seen=new Set();
     ALL=merged.filter(x=>{
       const k=`${x.date?.getTime()}-${x.sym}-${x.type}-${x.pnl}-${x.buyPrice}-${x.sellPrice}`;
       if(seen.has(k))return false;
       seen.add(k);return true;
+    }).sort((a,b)=>a.date-b.date);
+    // Fusion cash
+    const mergedCash=[...CASH,...cash];
+    const seenC=new Set();
+    CASH=mergedCash.filter(x=>{
+      const k=`${x.date?.getTime()}-${x.type}-${x.amt}`;
+      if(seenC.has(k))return false;
+      seenC.add(k);return true;
     }).sort((a,b)=>a.date-b.date);
     render();
   };
@@ -107,7 +114,7 @@ function loadFile(f){
 
 function parseCSV(txt){
   const lines=txt.split('\n').map(l=>l.trim()).filter(l=>l);
-  const raw=[];
+  const raw=[], cash=[];
   for(let i=1;i<lines.length;i++){
     const c=lines[i].split(',');
     if(c.length<5)continue;
@@ -116,16 +123,20 @@ function parseCSV(txt){
     const sym=(c[1]||'').trim(), type=(c[2]||'').trim().toUpperCase();
     const qty=parseFloat(c[3])||0, price=parseFloat((c[4]||'').replace(/[^0-9.]/g,''))||0;
     const total=(c[5]||'').trim();
+    const amt=parseFloat(total.replace(/[^0-9.\-]/g,''));
     if(type.includes('OVERNIGHT')){
-      const v=parseFloat(total.replace(/[^0-9.\-]/g,''));
-      raw.push({date,sym:'FEE',type:'fee',pnl:isNaN(v)?0:v,qty:0,price:0});
+      raw.push({date,sym:'FEE',type:'fee',pnl:isNaN(amt)?0:amt,qty:0,price:0});
+    }else if(type.includes('TOP-UP')){
+      cash.push({date,type:'deposit',amt:isNaN(amt)?0:Math.abs(amt)});
+    }else if(type.includes('WITHDRAWAL')){
+      cash.push({date,type:'withdrawal',amt:isNaN(amt)?0:Math.abs(amt)});
     }else if(type.startsWith('SELL')){
       raw.push({date,sym,side:'SELL',qty,price,type:'trade'});
     }else if(type.startsWith('BUY')){
       raw.push({date,sym,side:'BUY',qty,price,type:'trade'});
     }
   }
-  return matchTrades(raw);
+  return{trades:matchTrades(raw),cash};
 }
 
 function matchTrades(raw){
@@ -192,14 +203,14 @@ function switchTab(t){
   document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('on',el.dataset.t===t));
   document.getElementById('tab-trades').style.display=t==='trades'?'block':'none';
   document.getElementById('tab-stats').style.display=t==='stats'?'block':'none';
+  document.getElementById('tab-capital').style.display=t==='capital'?'block':'none';
 }
 
 function toggleP(id){
   const b=document.getElementById('pb-'+id);
   const a=document.getElementById('pa-'+id);
-  const open=b.classList.contains('open');
-  b.classList.toggle('open',!open);
-  if(a)a.classList.toggle('open',!open);
+  b.classList.toggle('open');
+  if(a)a.classList.toggle('open');
 }
 
 function render(){
@@ -215,7 +226,7 @@ function render(){
 
   const {bm,by}=periodStats();
 
-  // Build stats tab
+  // STATS TAB
   let statsH='';
   statsH+='<div class="sec-lbl">Par année</div>';
   for(const yk of Object.keys(by).sort().reverse()){
@@ -253,6 +264,29 @@ function render(){
   }
   statsH+='<div style="height:20px"></div>';
 
+  // CAPITAL TAB
+  const totalIn=CASH.filter(x=>x.type==='deposit').reduce((s,x)=>s+x.amt,0);
+  const totalOut=CASH.filter(x=>x.type==='withdrawal').reduce((s,x)=>s+x.amt,0);
+  const netCash=Math.round((totalIn-totalOut)*100)/100;
+
+  let capitalH=`
+  <div class="stats-grid">
+    <div class="stat"><div class="lbl">Total déposé</div><div class="val pos">+$${f2(totalIn)}</div></div>
+    <div class="stat"><div class="lbl">Total retiré</div><div class="val neg">-$${f2(totalOut)}</div></div>
+    <div class="stat"><div class="lbl">Capital net investi</div><div class="val neu">$${f2(netCash)}</div></div>
+    <div class="stat"><div class="lbl">P&L trading</div><div class="val ${net>=0?'pos':'neg'}">${fa(net)}</div></div>
+  </div>
+  <div class="sec-lbl" style="margin-top:16px">Mouvements de capital</div>`;
+  for(const m of CASH){
+    const dep=m.type==='deposit';
+    capitalH+=`<div class="card">
+      <div class="badge ${dep?'bd':'bl'}">${dep?'📥':'📤'}</div>
+      <div class="info"><div class="sym">${dep?'Dépôt':'Retrait'}</div><div class="tm">${fdate(m.date)} · ${ftime(m.date)}</div></div>
+      <div class="pnl"><div class="amt ${dep?'pos':'neg'}">${dep?'+':'-'}$${f2(m.amt)}</div></div>
+    </div>`;
+  }
+  capitalH+='<div style="height:20px"></div>';
+
   document.getElementById('app').innerHTML=`
   <div class="topbar">
     <span style="font-size:12px;color:#555">${paired.length} trades · ${wins.length}W ${losses.length}L</span>
@@ -267,6 +301,7 @@ function render(){
   <div class="tabs">
     <div class="tab on" data-t="trades" onclick="switchTab('trades')">📋 Trades</div>
     <div class="tab" data-t="stats" onclick="switchTab('stats')">📊 Stats</div>
+    <div class="tab" data-t="capital" onclick="switchTab('capital')">💰 Capital</div>
   </div>
   <div id="tab-trades">
     <div class="filters" style="margin-top:12px">
@@ -280,7 +315,8 @@ function render(){
       📄 Charger un autre fichier
     </div>
   </div>
-  <div id="tab-stats" style="display:none;margin-top:12px">${statsH}</div>`;
+  <div id="tab-stats" style="display:none;margin-top:12px">${statsH}</div>
+  <div id="tab-capital" style="display:none;margin-top:12px">${capitalH}</div>`;
 
   applyFilter('all');
 }
@@ -318,7 +354,7 @@ function renderList(){
   list.innerHTML=html||'<div class="empty">🔍<br><br>Aucun trade dans ce filtre</div>';
 }
 
-function clearData(){if(confirm('Effacer les données ?')){ALL=[];location.reload();}}
+function clearData(){if(confirm('Effacer les données ?')){ALL=[];CASH=[];location.reload();}}
 
 // Auto-load
 const CSV=`Date,Symbol,Type,Quantity,Price,Total Amount,Margin,Fees,Currency,FX Rate
@@ -410,8 +446,8 @@ const CSV=`Date,Symbol,Type,Quantity,Price,Total Amount,Margin,Fees,Currency,FX 
 2026-03-13T20:06:43.655Z,BRENT:CFD,SELL - MARKET,50,USD 103.70,USD 5185,$518.50,$0,USD,1.1452
 2026-03-13T20:17:16.191Z,BRENT:CFD,SELL - MARKET,50,USD 103.78,USD 5188.95,$518.90,$0,USD,1.1449
 2026-03-13T20:43:27.059Z,BRENT:CFD,BUY - MARKET,50,USD 103.85,USD 5192.35,$519.24,$0,USD,1.1438`;
-const t=parseCSV(CSV);
-if(t.length){ALL=t;render();}
+const {trades,cash}=parseCSV(CSV);
+if(trades.length){ALL=trades;CASH=cash;render();}
 </script>
 
 </body>
