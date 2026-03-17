@@ -107,6 +107,7 @@ function loadFile(f){
       if(seenC.has(k))return false;
       seenC.add(k);return true;
     }).sort((a,b)=>a.date-b.date);
+    saveToStorage();
     render();
   };
   r.readAsText(f);
@@ -354,7 +355,26 @@ function renderList(){
   list.innerHTML=html||'<div class="empty">🔍<br><br>Aucun trade dans ce filtre</div>';
 }
 
-function clearData(){if(confirm('Effacer les données ?')){ALL=[];CASH=[];location.reload();}}
+function clearData(){if(confirm('Effacer les données ?')){ALL=[];CASH=[];localStorage.removeItem('tj_trades');localStorage.removeItem('tj_cash');location.reload();}}
+
+// localStorage save/load
+function saveToStorage(){
+  try{
+    localStorage.setItem('tj_trades',JSON.stringify(ALL.map(t=>({...t,date:t.date?.toISOString()}))));
+    localStorage.setItem('tj_cash',JSON.stringify(CASH.map(c=>({...c,date:c.date?.toISOString()}))));
+  }catch(e){console.log('Storage error',e);}
+}
+
+function loadFromStorage(){
+  try{
+    const t=localStorage.getItem('tj_trades');
+    const c=localStorage.getItem('tj_cash');
+    if(t){ALL=JSON.parse(t).map(x=>({...x,date:new Date(x.date)}));}
+    if(c){CASH=JSON.parse(c).map(x=>({...x,date:new Date(x.date)}));}
+    if(ALL.length){render();return true;}
+  }catch(e){console.log('Storage load error',e);}
+  return false;
+}
 
 // Auto-load
 const CSV=`Date,Symbol,Type,Quantity,Price,Total Amount,Margin,Fees,Currency,FX Rate
@@ -447,7 +467,7 @@ const CSV=`Date,Symbol,Type,Quantity,Price,Total Amount,Margin,Fees,Currency,FX 
 2026-03-13T20:17:16.191Z,BRENT:CFD,SELL - MARKET,50,USD 103.78,USD 5188.95,$518.90,$0,USD,1.1449
 2026-03-13T20:43:27.059Z,BRENT:CFD,BUY - MARKET,50,USD 103.85,USD 5192.35,$519.24,$0,USD,1.1438`;
 const {trades,cash}=parseCSV(CSV);
-if(trades.length){ALL=trades;CASH=cash;render();}
+if(trades.length&&!loadFromStorage()){ALL=trades;CASH=cash;render();}
 </script>
 
 </body>
